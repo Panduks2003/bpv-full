@@ -1,0 +1,24 @@
+# BrightPlanet Ventures - robots.txt
+# https://www.robotstxt.org/robotstxt.html
+
+# Allow all search engines to crawl everything
+User-agent: *
+Allow: /
+
+# Block crawling of admin areas (when implemented)
+Disallow: /admin/
+Disallow: /api/
+Disallow: /*.json$
+
+# Block common bot-targeted files
+Disallow: /wp-admin/
+Disallow: /wp-content/
+Disallow: /wp-includes/
+
+# Allow important files for SEO
+Allow: /favicon.ico
+Allow: /logo*.png
+Allow: /manifest.json
+
+# Sitemap location
+Sitemap: https://brightplanetventures.com/sitemap.xml

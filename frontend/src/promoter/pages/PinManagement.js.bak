@@ -1,0 +1,745 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from "../../common/context/AuthContext";
+import { useNavigate } from 'react-router-dom';
+import { supabase } from "../../common/services/supabaseClient"
+import PromoterNavbar from '../components/PromoterNavbar';
+import { 
+  UnifiedBackground, 
+  UnifiedCard, 
+  UnifiedButton,
+  useScrollAnimation,
+  SharedStyles
+} from "../../common/components/SharedTheme";
+import { 
+  Shield, Users, Clock, CheckCircle, AlertCircle, XCircle, Eye, Plus,
+  Filter, Download, Copy, Send, Calendar, Target, TrendingUp,
+  Search, RefreshCw, DollarSign, User, FileText, ArrowUpRight,
+  ArrowDownLeft, MessageSquare, Award
+} from 'lucide-react';
+
+function PinManagement() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  useScrollAnimation();
+
+  // Tab management
+  const [activeTab, setActiveTab] = useState('overview');
+
+  // State management
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Search and filters
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedFilter, setSelectedFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState('all');
+
+  // Modals
+  const [showAllocateModal, setShowAllocateModal] = useState(false);
+  const [showNewRequestModal, setShowNewRequestModal] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [newRequest, setNewRequest] = useState({
+    quantity: ''
+  });
+  const [toast, setToast] = useState({ show: false, message: '', type: '' });
+
+  // Toast utility function
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast({ show: false, message: '', type: '' });
+    }, 4000);
+  };
+
+  // Form states
+  const [allocatedAmount, setAllocationAmount] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState('');
+
+  // Data states
+  const [overallStats, setOverallStats] = useState({
+    totalPins: 0,
+    allocatedPins: 0,
+    availablePins: 0,
+    totalValue: 0,
+    totalRequests: 0,
+    pendingRequests: 0,
+    approvedRequests: 0,
+    rejectedRequests: 0,
+    totalTransactions: 0,
+    successfulTransactions: 0,
+    failedTransactions: 0
+  });
+
+  const [repaymentPins, setRepaymentPins] = useState([]);
+  const [pinRequests, setPinRequests] = useState([]);
+  const [customers, setCustomers] = useState([]);
+
+  // Load all data
+  useEffect(() => {
+    if (user?.id) {
+      loadAllData();
+    }
+  }, [user]);
+
+  const loadAllData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('🔍 Loading all pin data for promoter:', user.id);
+      
+      await Promise.all([
+        loadPinData(),
+        loadRequestsData(),
+        loadCustomersData()
+      ]);
+      
+    } catch (err) {
+      console.error('❌ Error loading pin management data:', err);
+      setError('Failed to load pin management data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadPinData = async () => {
+    try {
+      // Load real pin data from promoter's profile record
+      const { data: promoterData, error: promoterError } = await supabase
+        .from('profiles')
+        .select('pins')
+        .eq('id', user.id)
+        .eq('role', 'promoter')
+        .single();
+
+      if (!promoterError && promoterData) {
+        const currentPins = promoterData.pins || 0;
+        
+        // Create pin data structure for UI
+        const pinData = [];
+        for (let i = 0; i < currentPins; i++) {
+          pinData.push({
+            id: `pin_${i + 1}`,
+            pinCode: `PIN${String(i + 1).padStart(3, '0')}`,
+            status: 'available',
+            value: 1, // Each pin worth 1 unit
+            customerName: null,
+            allocatedDate: null
+          });
+        }
+        
+        setRepaymentPins(pinData);
+        console.log('📌 Pin data: Loaded', currentPins, 'pins from database');
+      } else {
+        setRepaymentPins([]);
+        console.log('📌 Pin data: No promoter data found');
+      }
+    } catch (err) {
+      console.error('Error loading pin data:', err);
+      setRepaymentPins([]);
+    }
+  };
+
+  const loadRequestsData = async () => {
+    try {
+      // Load pin requests from promoter's profile record
+      const { data: promoterData, error: requestsError } = await supabase
+        .from('profiles')
+        .select('pin_requests')
+        .eq('id', user.id)
+        .eq('role', 'promoter')
+        .single();
+
+      if (!requestsError && promoterData) {
+        let requests = [];
+        try {
+          requests = promoterData.pin_requests ? JSON.parse(promoterData.pin_requests) : [];
+        } catch (e) {
+          requests = [];
+        }
+
+        const transformedRequests = requests.map((request, index) => ({
+          id: `${user.id}_${index}`, // Simple ID for table keys
+          requestId: request.requestId || `REQ${index}`,
+          quantity: request.quantity || 0,
+          status: request.status || 'pending',
+          requestDate: request.requestDate,
+          responseDate: request.responseDate || null,
+          adminNotes: request.adminNotes || null,
+          promoterId: user.id
+        }));
+
+        // Sort requests by date - newest first
+        const sortedRequests = transformedRequests.sort((a, b) => {
+          const dateA = a.requestDate ? new Date(a.requestDate) : new Date(0);
+          const dateB = b.requestDate ? new Date(b.requestDate) : new Date(0);
+          return dateB - dateA; // Descending order (newest first)
+        });
+
+        setPinRequests(sortedRequests);
+        console.log('📋 Loaded pin requests:', transformedRequests.length);
+      } else {
+        setPinRequests([]);
+      }
+    } catch (err) {
+      console.error('Error loading requests data:', err);
+      setPinRequests([]);
+    }
+  };
+
+
+  const loadCustomersData = async () => {
+    try {
+      // Load customers for potential pin allocation
+      const { data: customersData, error: customersError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .eq('role', 'customer');
+
+      if (!customersError && customersData) {
+        setCustomers(customersData);
+      }
+    } catch (err) {
+      console.error('Error loading customers data:', err);
+    }
+  };
+
+  // Calculate overall statistics
+  useEffect(() => {
+    const safePins = repaymentPins || [];
+    const safeRequests = pinRequests || [];
+    
+    const stats = {
+      totalPins: safePins.length,
+      allocatedPins: safePins.filter(p => p?.status === 'allocated' || p?.status === 'used').length,
+      availablePins: safePins.filter(p => p?.status === 'available').length,
+      totalValue: safePins.reduce((sum, p) => sum + (p?.value || 0), 0),
+      totalRequests: safeRequests.length,
+      pendingRequests: safeRequests.filter(r => r?.status === 'pending').length,
+      approvedRequests: safeRequests.filter(r => r?.status === 'approved').length,
+      rejectedRequests: safeRequests.filter(r => r?.status === 'rejected').length,
+      totalTransactions: 0,
+      successfulTransactions: 0,
+      failedTransactions: 0
+    };
+    setOverallStats(stats);
+  }, [repaymentPins, pinRequests]);
+
+  // Filter functions
+  const filteredPins = (repaymentPins || []).filter(pin => {
+    const matchesFilter = selectedFilter === 'all' || pin?.status === selectedFilter;
+    const matchesSearch = pin?.pinCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         pin?.customerName?.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+
+  const filteredRequests = (pinRequests || []).filter(request => {
+    const matchesSearch = request?.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         request?.reason?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         request?.category?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || request?.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+
+  return (
+    <>
+      <SharedStyles />
+      <PromoterNavbar />
+      <UnifiedBackground>
+        <div>
+          <div className="relative">
+            <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 via-transparent to-yellow-500/5"></div>
+            <div className="relative max-w-6xl mx-auto px-6 py-8 pb-12">
+              {/* Clean Header */}
+              <div className="text-center mb-6" data-animate>
+                <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
+                  Pin Management
+                </h1>
+                <p className="text-gray-300 mb-6">Manage your pins and requests</p>
+                
+                {error && (
+                  <p className="text-red-400 text-sm mb-4">
+                    ⚠️ {error}
+                  </p>
+                )}
+                
+                {/* Action Button */}
+                <div className="flex justify-center">
+                  <button
+                    onClick={() => setShowNewRequestModal(true)}
+                    disabled={loading}
+                    className="inline-flex items-center justify-center px-6 py-3 bg-gradient-to-r from-orange-500 to-yellow-500 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105 disabled:opacity-50"
+                  >
+                    <Plus className="w-5 h-5 mr-2" />
+                    New Pin Request
+                  </button>
+                </div>
+              </div>
+
+              {/* Tab Navigation */}
+              <div className="flex justify-center space-x-1 mb-6" data-animate>
+              {[
+                { id: 'overview', label: 'Overview', icon: TrendingUp },
+                { id: 'requests', label: 'Pin Requests', icon: FileText }
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-medium transition-all duration-300 ${
+                      activeTab === tab.id
+                        ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg'
+                        : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50 hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Loading State */}
+            {loading ? (
+              <div className="flex items-center justify-center py-20 mb-8">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-400 mx-auto mb-4"></div>
+                  <p className="text-gray-400">Loading pin management data...</p>
+                  <p className="text-sm text-gray-500 mt-2">Fetching data from database</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                  <div className="space-y-8" data-animate>
+                    {/* Overall Statistics */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+                      <UnifiedCard className="p-8 bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-500/30 hover:border-green-400/50 transition-all duration-300">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-green-300 text-sm font-semibold uppercase tracking-wider">Available Pins</p>
+                            <p className="text-4xl font-bold text-white mt-2">{overallStats.availablePins}</p>
+                          </div>
+                          <div className="w-16 h-16 bg-green-500/20 rounded-xl flex items-center justify-center">
+                            <CheckCircle className="w-8 h-8 text-green-400" />
+                          </div>
+                        </div>
+                        <div className="flex items-center mt-6 text-sm">
+                          <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
+                          <span className="text-green-300">Ready for allocation</span>
+                        </div>
+                      </UnifiedCard>
+
+                      <UnifiedCard className="p-8 bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 hover:border-yellow-400/50 transition-all duration-300">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-yellow-300 text-sm font-semibold uppercase tracking-wider">Pending Requests</p>
+                            <p className="text-4xl font-bold text-white mt-2">{overallStats.pendingRequests}</p>
+                          </div>
+                          <div className="w-16 h-16 bg-yellow-500/20 rounded-xl flex items-center justify-center">
+                            <Clock className="w-8 h-8 text-yellow-400" />
+                          </div>
+                        </div>
+                        <div className="flex items-center mt-6 text-sm">
+                          <div className="w-2 h-2 bg-yellow-400 rounded-full mr-2"></div>
+                          <span className="text-yellow-300">Awaiting admin review</span>
+                        </div>
+                      </UnifiedCard>
+
+                      <UnifiedCard className="p-8 bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/30 hover:border-purple-400/50 transition-all duration-300">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-purple-300 text-sm font-semibold uppercase tracking-wider">Total Requests</p>
+                            <p className="text-4xl font-bold text-white mt-2">{overallStats.totalRequests}</p>
+                          </div>
+                          <div className="w-16 h-16 bg-purple-500/20 rounded-xl flex items-center justify-center">
+                            <FileText className="w-8 h-8 text-purple-400" />
+                          </div>
+                        </div>
+                        <div className="flex items-center mt-6 text-sm">
+                          <div className="w-2 h-2 bg-purple-400 rounded-full mr-2"></div>
+                          <span className="text-purple-300">{overallStats.approvedRequests} approved</span>
+                        </div>
+                      </UnifiedCard>
+                    </div>
+
+                    {/* Quick Actions */}
+                    <UnifiedCard className="p-8" variant="glassDark" data-animate>
+                      <h3 className="text-2xl font-semibold text-white mb-6">Quick Actions</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <UnifiedButton
+                          onClick={() => setShowNewRequestModal(true)}
+                          className="flex flex-col items-center space-y-3 p-6 h-auto bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-500/30 hover:border-green-400/50"
+                        >
+                          <Plus className="w-8 h-8 text-green-400" />
+                          <span className="text-white font-medium">Request Pins</span>
+                          <span className="text-gray-400 text-sm">Submit new request</span>
+                        </UnifiedButton>
+
+                        <UnifiedButton
+                          onClick={() => setActiveTab('requests')}
+                          className="flex flex-col items-center space-y-3 p-6 h-auto bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border border-yellow-500/30 hover:border-yellow-400/50"
+                        >
+                          <FileText className="w-8 h-8 text-yellow-400" />
+                          <span className="text-white font-medium">View Requests</span>
+                          <span className="text-gray-400 text-sm">{overallStats.totalRequests} requests</span>
+                        </UnifiedButton>
+
+                        <UnifiedButton
+                          onClick={() => navigate('/promoter/my-customers')}
+                          className="flex flex-col items-center space-y-3 p-6 h-auto bg-gradient-to-br from-green-500/10 to-emerald-500/10 border border-green-500/30 hover:border-green-400/50"
+                        >
+                          <Users className="w-8 h-8 text-green-400" />
+                          <span className="text-white font-medium">My Customers</span>
+                          <span className="text-gray-400 text-sm">Manage customers</span>
+                        </UnifiedButton>
+                      </div>
+                    </UnifiedCard>
+                  </div>
+                )}
+
+
+                {/* Pin Requests Tab */}
+                {activeTab === 'requests' && (
+                  <div className="space-y-6" data-animate>
+                    <UnifiedCard className="overflow-hidden" variant="glassDark">
+                      <div className="p-6 border-b border-gray-700/50">
+                        <h3 className="text-2xl font-semibold text-white">Pin Requests</h3>
+                        <p className="text-gray-300 text-sm mt-1">
+                          Showing {filteredRequests.length} of {pinRequests.length} requests
+                        </p>
+                      </div>
+                      <div className="p-6">
+                        {filteredRequests.length === 0 ? (
+                          <div className="text-center py-12">
+                            <FileText className="w-16 h-16 text-gray-600 mb-4 mx-auto" />
+                            <p className="text-gray-300 text-lg mb-2">No pin requests found</p>
+                            <p className="text-gray-400 text-sm mb-4">Submit your first pin request to see it here.</p>
+                            <UnifiedButton 
+                              onClick={() => setShowNewRequestModal(true)}
+                              className="flex items-center space-x-2"
+                            >
+                              <Plus className="w-4 h-4" />
+                              <span>Create First Request</span>
+                            </UnifiedButton>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead>
+                                <tr className="border-b border-gray-700/50 bg-gray-800/30">
+                                  <th className="text-left py-3 px-3 text-gray-300 font-semibold text-sm uppercase tracking-wider w-1/4">Request ID</th>
+                                  <th className="text-left py-3 px-3 text-gray-300 font-semibold text-sm uppercase tracking-wider w-1/4">Date</th>
+                                  <th className="text-center py-3 px-3 text-gray-300 font-semibold text-sm uppercase tracking-wider w-1/6">Pins</th>
+                                  <th className="text-center py-3 px-3 text-gray-300 font-semibold text-sm uppercase tracking-wider w-1/3">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-800/50">
+                                {filteredRequests.map((request, index) => {
+                                  const requestDate = request.requestDate ? new Date(request.requestDate) : new Date();
+                                  
+                                  return (
+                                    <tr key={request.requestId || request.id || index} className="hover:bg-gray-800/20 transition-all duration-200">
+                                      <td className="py-3 px-3 text-gray-300">
+                                        <div className="font-mono text-sm font-medium text-blue-300">
+                                          {request.requestId || 'N/A'}
+                                        </div>
+                                      </td>
+                                      <td className="py-3 px-3 text-gray-300">
+                                        <div>
+                                          <div className="text-sm font-medium text-white">
+                                            {requestDate.toLocaleDateString()}
+                                          </div>
+                                          <div className="text-xs text-gray-500">
+                                            {requestDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="py-3 px-3 text-center">
+                                        <div className="text-white font-bold text-base">
+                                          {request.quantity || 0} <span className="text-xs text-gray-500 font-normal">pins</span>
+                                        </div>
+                                      </td>
+                                      <td className="py-3 px-3 text-center">
+                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                          request.status === 'approved' ? 'bg-green-500/20 text-green-400' :
+                                          request.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                                          'bg-yellow-500/20 text-yellow-400'
+                                        }`}>
+                                          {request.status === 'approved' ? '✓ Approved' :
+                                           request.status === 'rejected' ? '✗ Rejected' :
+                                           '⏳ Pending'}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </UnifiedCard>
+                  </div>
+                )}
+
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* New Request Modal */}
+        {showNewRequestModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <UnifiedCard className="w-full max-w-md" variant="glassDark">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-semibold text-white">Request Pins</h3>
+                  <button
+                    onClick={() => setShowNewRequestModal(false)}
+                    className="text-gray-300 hover:text-white transition-colors"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-gray-300 text-sm mb-2">
+                      Number of Pins <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={newRequest.quantity}
+                      onChange={(e) => setNewRequest({...newRequest, quantity: e.target.value})}
+                      placeholder="Enter quantity (e.g., 10)"
+                      className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700/50 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-green-500/50 focus:ring-2 focus:ring-green-500/20"
+                    />
+                    <p className="text-gray-400 text-xs mt-1">Request between 1-100 pins</p>
+                  </div>
+
+                  <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                      <Shield className="w-5 h-5 text-blue-400 mt-0.5" />
+                      <div>
+                        <p className="text-blue-300 text-sm font-medium">Pin Request Info</p>
+                        <p className="text-gray-300 text-sm mt-1">
+                          Your request will be sent to the admin for review and approval. 
+                          Once approved, pins will be allocated to your account.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3 mt-6">
+                  <UnifiedButton
+                    variant="secondary"
+                    onClick={() => setShowNewRequestModal(false)}
+                  >
+                    Cancel
+                  </UnifiedButton>
+                  <UnifiedButton
+                    onClick={async () => {
+                      setSubmitting(true);
+                      try {
+                        const quantity = parseInt(newRequest.quantity);
+                        if (!quantity || quantity <= 0 || quantity > 100) {
+                          alert('Please enter a valid quantity between 1-100');
+                          return;
+                        }
+                        
+                        // Create a pin request (requestId will be generated by backend)
+                        const requestData = {
+                          quantity: quantity,
+                          promoterEmail: user.email
+                        };
+                        
+                        console.log('🔍 Submitting pin request:', requestData);
+                        
+                        // Try optimized RPC first, but expect it to fail since function may not exist
+                        let rpcWorked = false;
+                        let rpcData = null;
+                        try {
+                          const { data: rpcResponse, error: rpcError } = await supabase.rpc('add_pin_request', {
+                            p_promoter_id: user.id,
+                            p_request_data: requestData
+                          });
+                          
+                          console.log('🔍 RPC Response:', { rpcResponse, rpcError });
+                          
+                          if (!rpcError && rpcResponse?.success === true) {
+                            console.log('✅ RPC method worked:', rpcResponse);
+                            rpcData = rpcResponse;
+                            rpcWorked = true;
+                          } else if (rpcError?.code !== '42883') {
+                            // If RPC returned success: false, throw the error from the response
+                            if (rpcResponse?.success === false) {
+                              throw new Error(rpcResponse.error || 'RPC function returned failure');
+                            }
+                            // If there's a Supabase error, throw it
+                            if (rpcError) {
+                              throw rpcError;
+                            }
+                          }
+                        } catch (rpcErr) {
+                          console.error('❌ RPC method failed:', rpcErr);
+                          console.log('🔄 Using fallback method due to RPC error...');
+                          // Re-throw the error if it's not a "function not found" error
+                          if (rpcErr.message && !rpcErr.message.includes('function not found') && !rpcErr.message.includes('does not exist')) {
+                            throw rpcErr;
+                          }
+                        }
+
+                        // Use manual method if RPC didn't work
+                        if (!rpcWorked) {
+                          console.log('🔄 Using manual fallback method...');
+                          
+                          // Get current promoter's existing requests
+                          const { data: promoterData, error: promoterError } = await supabase
+                            .from('profiles')
+                            .select('pin_requests')
+                            .eq('id', user.id)
+                            .eq('role', 'promoter')
+                            .single();
+                          
+                          if (promoterError && promoterError.code !== 'PGRST116') {
+                            throw new Error(`Failed to get promoter data: ${promoterError.message}`);
+                          }
+                          
+                          // Get existing requests or initialize empty array
+                          let existingRequests = [];
+                          try {
+                            existingRequests = promoterData?.pin_requests ? JSON.parse(promoterData.pin_requests) : [];
+                          } catch (e) {
+                            existingRequests = [];
+                          }
+                          
+                          // Add new request
+                          existingRequests.push(requestData);
+                          
+                          // Update promoter profile record with new requests
+                          const { data: fallbackData, error: fallbackError } = await supabase
+                            .from('profiles')
+                            .update({
+                              pin_requests: JSON.stringify(existingRequests),
+                              updated_at: new Date().toISOString()
+                            })
+                            .eq('id', user.id)
+                            .eq('role', 'promoter')
+                            .select()
+                            .single();
+                          
+                          if (fallbackError) {
+                            console.error('❌ Fallback method failed:', fallbackError);
+                            throw fallbackError;
+                          }
+                          
+                          console.log('✅ Fallback method succeeded:', fallbackData);
+                        }
+                        
+                        console.log('🔍 Request submission completed successfully');
+                        
+                        if (error) throw error;
+                        
+                        // Show success toast with backend-generated request ID
+                        const backendRequestId = rpcData?.request_id || 'Generated by system';
+                        const globalSequence = rpcData?.global_sequence || 'N/A';
+                        showToast(`🎉 Pin request submitted successfully!\n\nRequest ID: ${backendRequestId}\nGlobal Sequence: #${globalSequence}\nQuantity: ${quantity} pins\nStatus: Pending Admin Approval`, 'success');
+                        
+                        setShowNewRequestModal(false);
+                        setNewRequest({
+                          quantity: ''
+                        });
+                        
+                        // Optimized: Only reload requests data instead of all data
+                        await loadRequestsData();
+                        
+                      } catch (error) {
+                        console.error('Error submitting request:', error);
+                        console.error('Error details:', error.message, error.details, error.hint);
+                        
+                        let errorMessage = '❌ Failed to submit request. ';
+                        if (error.message) {
+                          errorMessage += `Error: ${error.message}`;
+                        } else {
+                          errorMessage += 'Please try again.';
+                        }
+                        
+                        showToast(errorMessage, 'error');
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={!newRequest.quantity || submitting}
+                    className="flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white mr-2"></div>
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        <span>Submit Request</span>
+                      </>
+                    )}
+                  </UnifiedButton>
+                </div>
+              </div>
+            </UnifiedCard>
+          </div>
+        )}
+
+        {/* Toast Notification */}
+        {toast.show && (
+          <div className={`fixed top-4 right-4 z-50 max-w-md p-4 rounded-lg shadow-lg border transition-all duration-300 ${
+            toast.type === 'success' 
+              ? 'bg-green-500/10 border-green-500/30 text-green-300' 
+              : 'bg-red-500/10 border-red-500/30 text-red-300'
+          }`}>
+            <div className="flex items-start space-x-3">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+              }`}>
+                {toast.type === 'success' ? (
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium whitespace-pre-line">{toast.message}</p>
+              </div>
+              <button
+                onClick={() => setToast({ show: false, message: '', type: '' })}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+          </div>
+        </div>
+      </UnifiedBackground>
+    </>
+  );
+}
+
+export default PinManagement;

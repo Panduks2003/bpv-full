@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# Serve frontend files directly
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Proxy API requests to Node.js backend
+RewriteRule ^api/(.*)$ http://localhost:8080/api/$1 [P,L]
+
+# Serve React app for all other routes
+RewriteRule ^ index.html [L]

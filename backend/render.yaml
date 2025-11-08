@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: brightplanet-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Add other environment variables from your .env file here
+      # Make sure to set these in the Render dashboard as well
