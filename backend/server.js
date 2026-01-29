@@ -653,6 +653,10 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+// Commission routes
+const commissionRoutes = require('./routes/commission');
+app.use('/api/commission', commissionRoutes);
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);

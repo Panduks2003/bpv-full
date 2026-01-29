@@ -566,46 +566,29 @@ class CommissionService {
    */
   async getCommissionHistory(filters = {}) {
     try {
-      let query = supabase
-        .from('affiliate_commissions')
-        .select(`
-          *,
-          initiator:profiles!affiliate_commissions_initiator_promoter_id_fkey(name, email),
-          recipient:profiles!affiliate_commissions_recipient_id_fkey(name, email, role)
-        `);
+      // Use API endpoint instead of direct Supabase
+      const queryParams = new URLSearchParams();
+      if (filters.promoterId) queryParams.append('promoterId', filters.promoterId);
+      if (filters.level) queryParams.append('level', filters.level);
+      if (filters.status) queryParams.append('status', filters.status);
+      if (filters.dateFrom) queryParams.append('dateFrom', filters.dateFrom);
+      if (filters.dateTo) queryParams.append('dateTo', filters.dateTo);
+      
+      // Add admin flag for admin views (when no promoterId is specified)
+      if (!filters.promoterId) queryParams.append('admin', 'true');
 
-      // Apply filters
-      if (filters.promoterId) {
-        query = query.or(`recipient_id.eq.${filters.promoterId},initiator_promoter_id.eq.${filters.promoterId}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://api.brightplanetventures.com/api'}/commission/history?${queryParams}`);
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to fetch commission history');
       }
-
-      if (filters.level) {
-        query = query.eq('level', filters.level);
-      }
-
-      if (filters.status) {
-        query = query.eq('status', filters.status);
-      }
-
-      if (filters.dateFrom) {
-        query = query.gte('created_at', filters.dateFrom);
-      }
-
-      if (filters.dateTo) {
-        query = query.lte('created_at', filters.dateTo);
-      }
-
-      // Order by most recent first (no limit - show all records)
-      query = query.order('created_at', { ascending: false });
-
-      const { data, error } = await query;
-
-      if (error) throw error;
 
       return {
         success: true,
-        data: data || [],
-        count: data?.length || 0
+        data: result.data || [],
+        count: result.data?.length || 0,
+        totals: result.totals || { totalEarned: 0, totalCount: 0 }
       };
 
     } catch (error) {
@@ -616,6 +599,25 @@ class CommissionService {
         data: []
       };
     }
+  }
+
+  /**
+   * Remove duplicate commissions from data
+   * @param {Array} commissions - Commission data
+   * @returns {Array} Deduplicated commissions
+   */
+  removeDuplicateCommissions(commissions) {
+    if (!Array.isArray(commissions)) return [];
+    
+    const seen = new Set();
+    return commissions.filter(commission => {
+      const key = `${commission.customer_id}-${commission.level}-${commission.created_at}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
   }
 
   /**

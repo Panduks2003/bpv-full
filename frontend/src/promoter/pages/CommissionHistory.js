@@ -404,10 +404,10 @@ function CommissionHistory() {
                             <td className="px-6 py-4 whitespace-nowrap">
                               <div className="text-sm">
                                 <div className="text-white font-medium">
-                                  {customerNames[commission.customer_id] || 'Loading...'}
+                                  {commission.customer?.name || 'Unknown Customer'}
                                 </div>
                                 <div className="text-gray-400 text-xs mt-1">
-                                  {customerIds[commission.customer_id] || 'Loading...'}
+                                  {commission.customer?.customer_id || `C-${String(commission.customer_id || '').slice(-4)}`}
                                 </div>
                               </div>
                             </td>
